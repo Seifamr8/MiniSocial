@@ -23,9 +23,12 @@ public class UserService {
         }
 
         em.persist(user);
+        em.flush();  // make sure ID is generated
+        System.out.println("Generated ID: " + user.getId());
         return Response.status(Response.Status.CREATED)
-                .entity("{\"message\": \"User registered successfully.\"}")
-                .build();
+            .entity("{\"message\": \"User registered successfully.\", \"userId\": " + user.getId() + "}")
+            .build();
+
     }
 
     public User loginUser(String email, String password) {

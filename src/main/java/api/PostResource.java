@@ -1,22 +1,17 @@
 package api;
 
+import DTO.CommentDTO;
+import DTO.PostDTO;
+import models.Comment;
+import models.Post;
+import services.PostService;
+import util.DTOmapper;
+
 import javax.ejb.EJB;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.DELETE;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.PUT;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-//import javax.ws.rs.core.Context;
+import javax.ws.rs.*;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-//import javax.ws.rs.core.SecurityContext;
-
-import DTO.CommentRequest;
-import DTO.PostRequest;
-import services.PostService;
+import java.util.List;
 
 @Path("/posts")
 @Consumes(MediaType.APPLICATION_JSON)
@@ -29,49 +24,108 @@ public class PostResource {
     // Create a new post
     @POST
     @Path("/create/{userId}")
-    public Response createPost(@PathParam("userId") Long userId, PostRequest postRequest) {
-        return postService.createPost(userId, postRequest);
+    public Response createPost(@PathParam("userId") Long userId, PostDTO postDTO) {
+        // Convert DTO to entity
+        Post post = new Post();
+        post.setContent(postDTO.getContent());
+        post.setImageUrl(postDTO.getImageUrl());
+        post.setLinkUrl(postDTO.getLinkUrl());
+        
+        return postService.createPost(userId, post);
     }
-    
-    // Get a specific post by ID
-    @GET
-    @Path("/{postId}/{userId}")
-    public Response getPost(@PathParam("postId") Long postId, @PathParam("userId") Long userId) {
-        return postService.getPost(postId, userId);
-    }
-    
-    // Get user's feed (posts from user and their friends)
-    @GET
-    @Path("/feed/{userId}")
-    public Response getFeed(@PathParam("userId") Long userId) {
-        return postService.getFeed(userId);
-    }
-    
-    // Update a post
+
+    // Update an existing post
     @PUT
-    @Path("/{postId}/{userId}")
-    public Response updatePost(@PathParam("postId") Long postId, @PathParam("userId") Long userId, PostRequest postRequest) {
-        return postService.updatePost(postId, userId, postRequest);
+    @Path("/{postId}/update/{userId}")
+    public Response updatePost(@PathParam("postId") Long postId, @PathParam("userId") Long userId, PostDTO postDTO) {
+        // Convert DTO to entity
+        Post post = new Post();
+        post.setContent(postDTO.getContent());
+        post.setImageUrl(postDTO.getImageUrl());
+        post.setLinkUrl(postDTO.getLinkUrl());
+        
+        return postService.updatePost(postId, userId, post);
     }
-    
+
     // Delete a post
     @DELETE
-    @Path("/{postId}/{userId}")
+    @Path("/{postId}/delete/{userId}")
     public Response deletePost(@PathParam("postId") Long postId, @PathParam("userId") Long userId) {
         return postService.deletePost(postId, userId);
     }
-    
+
+    // Get user feed (posts from user and connections)
+    @GET
+    @Path("/feed/{userId}")
+    public Response getUserFeed(@PathParam("userId") Long userId) {
+        List<Post> posts = postService.getUserFeed(userId);
+        List<PostDTO> postDTOs = DTOmapper.toPostDTOList(posts, userId);
+        return Response.ok(postDTOs).build();
+    }
+
+    // Get a specific post
+    @GET
+    @Path("/{postId}")
+    public Response getPost(@PathParam("postId") Long postId, @QueryParam("userId") Long userId) {
+        Post post = postService.getPost(postId);
+        if (post == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("{\"message\": \"Post not found.\"}").build();
+        }
+        
+        PostDTO postDTO = DTOmapper.toPostDTOWithComments(post, userId);
+        return Response.ok(postDTO).build();
+    }
+
     // Like a post
     @POST
     @Path("/{postId}/like/{userId}")
-    public Response likePost(@PathParam("postId") Long postId, @PathParam("userId") Long userId) {
-        return postService.likePost(postId, userId);
+    public Response likePost(@PathParam("userId") Long userId, @PathParam("postId") Long postId) {
+        return postService.likePost(userId, postId);
     }
-    
-    // Comment on a post
+
+    // Unlike a post
+    @DELETE
+    @Path("/{postId}/unlike/{userId}")
+    public Response unlikePost(@PathParam("userId") Long userId, @PathParam("postId") Long postId) {
+        return postService.unlikePost(userId, postId);
+    }
+
+    // Add comment to post
     @POST
     @Path("/{postId}/comment/{userId}")
-    public Response commentOnPost(@PathParam("postId") Long postId, @PathParam("userId") Long userId, CommentRequest commentRequest) {
-        return postService.commentOnPost(postId, userId, commentRequest);
+    public Response addComment(@PathParam("userId") Long userId, @PathParam("postId") Long postId, CommentDTO commentDTO) {
+        // Convert DTO to entity
+        Comment comment = new Comment();
+        comment.setContent(commentDTO.getContent());
+        
+        return postService.addComment(userId, postId, comment);
+    }
+
+    // Update a comment
+    @PUT
+    @Path("/comment/{commentId}/update/{userId}")
+    public Response updateComment(@PathParam("commentId") Long commentId, @PathParam("userId") Long userId, CommentDTO commentDTO) {
+        // Convert DTO to entity
+        Comment comment = new Comment();
+        comment.setContent(commentDTO.getContent());
+        
+        return postService.updateComment(commentId, userId, comment);
+    }
+
+    // Delete a comment
+    @DELETE
+    @Path("/comment/{commentId}/delete/{userId}")
+    public Response deleteComment(@PathParam("commentId") Long commentId, @PathParam("userId") Long userId) {
+        return postService.deleteComment(commentId, userId);
+    }
+    
+    // Get comments for a post
+    @GET
+    @Path("/{postId}/comments")
+    public Response getPostComments(@PathParam("postId") Long postId) {
+        List<Comment> comments = postService.getPostComments(postId);
+        List<CommentDTO> commentDTOs = DTOmapper.toCommentDTOList(comments);
+        return Response.ok(commentDTOs).build();
     }
 }

@@ -1,44 +1,73 @@
-/*package api;
+package api;
 
-import javax.inject.Inject;
-import javax.ws.rs.Consumes;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
+import models.Group;
+import services.GroupService;
+
+import javax.ejb.EJB;
+import javax.ws.rs.*;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
-import models.Group;
-import models.User;
-import services.GroupService;
-
 @Path("/groups")
+@Consumes(MediaType.APPLICATION_JSON)
+@Produces(MediaType.APPLICATION_JSON)
 public class GroupResource {
 
-    @Inject
+    @EJB
     private GroupService groupService;
 
+    // Create a group by userId
     @POST
-    @Consumes(MediaType.APPLICATION_JSON)
-    @Produces(MediaType.APPLICATION_JSON)
-    public Response createGroup(Group group) {
-        return groupService.createGroup(group);
+    @Path("/create/{userId}")
+    public Response createGroup(@PathParam("userId") Long userId, Group group) {
+        return groupService.createGroup(userId, group);
     }
 
+    // Join a group
     @POST
-    @Path("/{id}/join")
-    @Produces(MediaType.APPLICATION_JSON)
-    public Response joinGroup(@PathParam("id") Long groupId, User user) {
-        return groupService.joinGroup(groupId, user);
+    @Path("/{groupId}/join/{userId}")
+    public Response joinGroup(@PathParam("userId") Long userId, @PathParam("groupId") Long groupId) {
+        return groupService.joinGroup(userId, groupId);
     }
 
-    @POST
-    @Path("/{id}/post")
-    @Consumes(MediaType.TEXT_PLAIN)
-    @Produces(MediaType.APPLICATION_JSON)
-    public Response postInGroup(@PathParam("id") Long groupId, String content, User user) {
-        return groupService.postInGroup(groupId, content, user);
+    // Respond to join request (accept or reject)
+    @PUT
+    @Path("/{groupId}/respond/{memberId}/{adminId}")
+    public Response respondToJoinRequest(
+            @PathParam("groupId") Long groupId,
+            @PathParam("memberId") Long memberId,
+            @PathParam("adminId") Long adminId,
+            @QueryParam("action") String action) {
+        return groupService.respondToJoinRequest(groupId, memberId, adminId, action);
     }
-}	
-*/
+
+    // Promote member to admin
+    @PUT
+    @Path("/{groupId}/promote/{adminId}/{memberId}")
+    public Response promoteMember(
+            @PathParam("groupId") Long groupId,
+            @PathParam("adminId") Long adminId,
+            @PathParam("memberId") Long memberId) {
+        return groupService.promoteMember(groupId, adminId, memberId);
+    }
+
+    // Remove member from group
+    @DELETE
+    @Path("/{groupId}/remove/{adminId}/{memberId}")
+    public Response removeMember(
+            @PathParam("groupId") Long groupId,
+            @PathParam("adminId") Long adminId,
+            @PathParam("memberId") Long memberId) {
+        return groupService.removeMember(groupId, adminId, memberId);
+    }
+
+    // Delete group
+    @DELETE
+    @Path("/{groupId}/delete/{adminId}")
+    public Response deleteGroup(
+            @PathParam("groupId") Long groupId,
+            @PathParam("adminId") Long adminId) {
+        return groupService.deleteGroup(groupId, adminId);
+    }
+}
+

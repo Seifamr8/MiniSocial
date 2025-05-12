@@ -1,7 +1,9 @@
 package api;
 
+import DTO.ConnectionDTO;
 import models.Connection;
 import services.ConnectionService;
+import util.DTOmapper;
 
 import javax.ejb.EJB;
 import javax.ws.rs.*;
@@ -36,6 +38,7 @@ public class ConnectionResource {
     @Path("/view/{userId}")
     public Response viewConnections(@PathParam("userId") Long userId) {
         List<Connection> connections = connectionService.viewConnections(userId);
-        return Response.ok(connections).build();
+        List<ConnectionDTO> connectionDTOs = DTOmapper.toConnectionDTOList(connections);
+        return Response.ok(connectionDTOs).build();
     }
 }

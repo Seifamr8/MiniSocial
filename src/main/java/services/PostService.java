@@ -1,279 +1,292 @@
 package services;
 
+import models.Comment;
+import models.Like;
+import models.Post;
+import models.User;
+import javax.ejb.Stateless;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import javax.persistence.TypedQuery;
+import javax.ws.rs.core.Response;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.stream.Collectors;
-
-import javax.annotation.Resource;
-import javax.ejb.EJB;
-import javax.ejb.Stateless;
-import javax.jms.ConnectionFactory;
-//import javax.jms.JMSContext;
-import javax.jms.Queue;
-import javax.persistence.EntityManager;
-import javax.persistence.NoResultException;
-import javax.persistence.PersistenceContext;
-import javax.ws.rs.core.Response;
-
-import DTO.CommentRequest;
-import DTO.CommentResponse;
-import DTO.PostRequest;
-import DTO.PostResponse;
-import DTO.UserSummary;
-import models.Comment;
-import models.Like;
-//import models.NotificationEvent;
-//import models.NotificationEvent.EventType;
-import models.Post;
-import models.User;
 
 @Stateless
 public class PostService {
-
-    @PersistenceContext(unitName = "hello")
+	
+    @PersistenceContext
     private EntityManager em;
-    
-   /* @Resource(mappedName = "java:/ConnectionFactory")
-    private ConnectionFactory connectionFactory;*/
-    
-   /* @Resource(mappedName = "java:/jms/queue/NotificationQueue")
-    private Queue notificationQueue;*/
-    
-    @EJB
-    private UserService userService;
 
     // Create a new post
-    public Response createPost(Long userId, PostRequest postRequest) {
-        User user = em.find(User.class, userId);
-        if (user == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("{\"message\": \"User not found.\"}").build();
+    public Response createPost(Long userId, Post post) {
+        try {
+            User user = em.find(User.class, userId);
+            if (user == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity("{\"message\": \"User not found.\"}").build();
+            }
+
+            post.setAuthor(user);
+            post.setCreatedAt(new Date());
+            post.setUpdatedAt(new Date());
+            
+            em.persist(post);
+            
+            return Response.status(Response.Status.CREATED)
+                    .entity("{\"message\": \"Post created successfully.\", \"postId\": " + post.getId() + "}").build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("{\"message\": \"Error creating post: " + e.getMessage() + "\"}").build();
         }
-        
-        Post post = new Post();
-        post.setContent(postRequest.getContent());
-        post.setImageUrl(postRequest.getImageUrl());
-        post.setAuthor(user);
-        post.setCreatedAt(new Date());
-        
-        em.persist(post);
-        
-        return Response.status(Response.Status.CREATED)
-                .entity("{\"message\": \"Post created successfully.\", \"postId\": " + post.getId() + "}").build();
     }
-    
-    // Get a specific post by ID
-    public Response getPost(Long postId, Long currentUserId) {
-        Post post = em.find(Post.class, postId);
-        if (post == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("{\"message\": \"Post not found.\"}").build();
-        }
-        
-        PostResponse response = convertToPostResponse(post, currentUserId);
-        return Response.ok(response).build();
-    }
-    
-    // Get feed (posts from user and friends)
-    public Response getFeed(Long userId) {
-        User user = em.find(User.class, userId);
-        if (user == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("{\"message\": \"User not found.\"}").build();
-        }
-        
-        // In a real implementation, you would fetch posts from friends as well
-        // For simplicity, just fetching user's posts for now
-        List<Post> posts = em.createQuery(
-                "SELECT p FROM Post p WHERE p.author.id = :userId ORDER BY p.createdAt DESC", Post.class)
-                .setParameter("userId", userId)
-                .getResultList();
-        
-        List<PostResponse> postResponses = posts.stream()
-                .map(post -> convertToPostResponse(post, userId))
-                .collect(Collectors.toList());
-        
-        return Response.ok(postResponses).build();
-    }
-    
+
     // Update a post
-    public Response updatePost(Long postId, Long userId, PostRequest postRequest) {
-        Post post = em.find(Post.class, postId);
-        if (post == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("{\"message\": \"Post not found.\"}").build();
+    public Response updatePost(Long postId, Long userId, Post updatedPost) {
+        try {
+            Post post = em.find(Post.class, postId);
+            if (post == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity("{\"message\": \"Post not found.\"}").build();
+            }
+
+            if (!post.getAuthor().getId().equals(userId)) {
+                return Response.status(Response.Status.FORBIDDEN)
+                        .entity("{\"message\": \"You can only update your own posts.\"}").build();
+            }
+
+            // Update post fields
+            if (updatedPost.getContent() != null) {
+                post.setContent(updatedPost.getContent());
+            }
+            if (updatedPost.getImageUrl() != null) {
+                post.setImageUrl(updatedPost.getImageUrl());
+            }
+            if (updatedPost.getLinkUrl() != null) {
+                post.setLinkUrl(updatedPost.getLinkUrl());
+            }
+            
+            post.setUpdatedAt(new Date());
+            
+            em.merge(post);
+            
+            return Response.ok("{\"message\": \"Post updated successfully.\"}").build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("{\"message\": \"Error updating post: " + e.getMessage() + "\"}").build();
         }
-        
-        // Check if user is the author of the post or an admin
-        User user = em.find(User.class, userId);
-        if (user == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("{\"message\": \"User not found.\"}").build();
-        }
-        
-        if (!post.getAuthor().getId().equals(userId) && !"admin".equals(user.getRole())) {
-            return Response.status(Response.Status.FORBIDDEN)
-                    .entity("{\"message\": \"You don't have permission to update this post.\"}").build();
-        }
-        
-        post.setContent(postRequest.getContent());
-        if (postRequest.getImageUrl() != null) {
-            post.setImageUrl(postRequest.getImageUrl());
-        }
-        
-        em.merge(post);
-        
-        return Response.ok("{\"message\": \"Post updated successfully.\"}").build();
     }
-    
+
     // Delete a post
     public Response deletePost(Long postId, Long userId) {
-        Post post = em.find(Post.class, postId);
-        if (post == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("{\"message\": \"Post not found.\"}").build();
-        }
-        
-        // Check if user is the author of the post or an admin
-        User user = em.find(User.class, userId);
-        if (user == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("{\"message\": \"User not found.\"}").build();
-        }
-        
-        if (!post.getAuthor().getId().equals(userId) && !"admin".equals(user.getRole())) {
-            return Response.status(Response.Status.FORBIDDEN)
-                    .entity("{\"message\": \"You don't have permission to delete this post.\"}").build();
-        }
-        
-        em.remove(post);
-        
-        return Response.ok("{\"message\": \"Post deleted successfully.\"}").build();
-    }
-    
-    // Like a post
-    public Response likePost(Long postId, Long userId) {
-        Post post = em.find(Post.class, postId);
-        if (post == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("{\"message\": \"Post not found.\"}").build();
-        }
-        
-        User user = em.find(User.class, userId);
-        if (user == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("{\"message\": \"User not found.\"}").build();
-        }
-        
-        // Check if user already liked the post
         try {
-            em.createQuery("SELECT l FROM Like l WHERE l.post.id = :postId AND l.user.id = :userId")
-                .setParameter("postId", postId)
-                .setParameter("userId", userId)
-                .getSingleResult();
+            Post post = em.find(Post.class, postId);
+            if (post == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity("{\"message\": \"Post not found.\"}").build();
+            }
+
+            if (!post.getAuthor().getId().equals(userId)) {
+                return Response.status(Response.Status.FORBIDDEN)
+                        .entity("{\"message\": \"You can only delete your own posts.\"}").build();
+            }
+
+            em.remove(post);
             
-            // User already liked the post
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity("{\"message\": \"You have already liked this post.\"}").build();
-        } catch (NoResultException e) {
-            // User hasn't liked the post yet, proceed
+            return Response.ok("{\"message\": \"Post deleted successfully.\"}").build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("{\"message\": \"Error deleting post: " + e.getMessage() + "\"}").build();
+        }
+    }
+
+    // Get user feed (posts from user and connections)
+    public List<Post> getUserFeed(Long userId) {
+        User user = em.find(User.class, userId);
+        if (user == null) {
+            return new ArrayList<>();
+        }
+
+        // Get IDs of connected users (friends)
+        TypedQuery<Long> friendsQuery = em.createQuery(
+                "SELECT c.sender.id FROM Connection c WHERE c.receiver.id = :userId AND c.status = 'accepted' " +
+                "UNION " +
+                "SELECT c.receiver.id FROM Connection c WHERE c.sender.id = :userId AND c.status = 'accepted'", 
+                Long.class);
+        friendsQuery.setParameter("userId", userId);
+        List<Long> friendIds = friendsQuery.getResultList();
+        
+        // Add current user ID to the list
+        friendIds.add(userId);
+
+        // Get posts from user and friends
+        TypedQuery<Post> postsQuery = em.createQuery(
+                "SELECT p FROM Post p WHERE p.author.id IN :userIds ORDER BY p.createdAt DESC", 
+                Post.class);
+        postsQuery.setParameter("userIds", friendIds);
+        
+        return postsQuery.getResultList();
+    }
+
+    // Get single post
+    public Post getPost(Long postId) {
+        return em.find(Post.class, postId);
+    }
+
+    // Like a post
+    public Response likePost(Long userId, Long postId) {
+        try {
+            User user = em.find(User.class, userId);
+            Post post = em.find(Post.class, postId);
+            
+            if (user == null || post == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity("{\"message\": \"User or post not found.\"}").build();
+            }
+
+            // Check if user already liked this post
+            TypedQuery<Long> likeQuery = em.createQuery(
+                    "SELECT COUNT(l) FROM Like l WHERE l.user.id = :userId AND l.post.id = :postId", 
+                    Long.class);
+            likeQuery.setParameter("userId", userId);
+            likeQuery.setParameter("postId", postId);
+            
+            if (likeQuery.getSingleResult() > 0) {
+                return Response.status(Response.Status.CONFLICT)
+                        .entity("{\"message\": \"You already liked this post.\"}").build();
+            }
+
+            // Create new like
             Like like = new Like();
-            like.setPost(post);
             like.setUser(user);
+            like.setPost(post);
+            like.setCreatedAt(new Date());
+            
             em.persist(like);
             
-            // Send notification to post author
-           /* if (!userId.equals(post.getAuthor().getId())) {
-                sendNotification(EventType.POST_LIKE, userId, post.getAuthor().getId(), postId, 
-                                user.getName() + " liked your post");
-            }
-            */
             return Response.ok("{\"message\": \"Post liked successfully.\"}").build();
-        }
-    }
-    
-    // Comment on a post
-    public Response commentOnPost(Long postId, Long userId, CommentRequest commentRequest) {
-        Post post = em.find(Post.class, postId);
-        if (post == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("{\"message\": \"Post not found.\"}").build();
-        }
-        
-        User user = em.find(User.class, userId);
-        if (user == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("{\"message\": \"User not found.\"}").build();
-        }
-        
-        Comment comment = new Comment();
-        comment.setContent(commentRequest.getContent());
-        comment.setPost(post);
-        comment.setUser(user);
-        
-        em.persist(comment);
-        
-        // Send notification to post author
-        /*if (!userId.equals(post.getAuthor().getId())) {
-            sendNotification(EventType.POST_COMMENT, userId, post.getAuthor().getId(), postId, 
-                            user.getName() + " commented on your post");
-        }*/
-        
-        return Response.status(Response.Status.CREATED)
-                .entity("{\"message\": \"Comment added successfully.\", \"commentId\": " + comment.getId() + "}").build();
-    }
-    
-    // Helper method to convert Post to PostResponse
-    private PostResponse convertToPostResponse(Post post, Long currentUserId) {
-        PostResponse response = new PostResponse();
-        response.setId(post.getId());
-        response.setContent(post.getContent());
-        response.setImageUrl(post.getImageUrl());
-        response.setCreatedAt(post.getCreatedAt());
-        
-        UserSummary authorSummary = new UserSummary();
-        authorSummary.setId(post.getAuthor().getId());
-        authorSummary.setName(post.getAuthor().getName());
-        response.setAuthor(authorSummary);
-        
-        response.setLikeCount(post.getLikes().size());
-        response.setCommentCount(post.getComments().size());
-        
-        // Check if current user has liked the post
-        boolean likedByCurrentUser = post.getLikes().stream()
-                .anyMatch(like -> like.getUser().getId().equals(currentUserId));
-        response.setLikedByCurrentUser(likedByCurrentUser);
-        
-        // Get comments (you might want to limit this in a real app)
-        List<CommentResponse> commentResponses = post.getComments().stream()
-                .map(comment -> {
-                    CommentResponse commentResponse = new CommentResponse();
-                    commentResponse.setId(comment.getId());
-                    commentResponse.setContent(comment.getContent());
-                    commentResponse.setCreatedAt(comment.getCreatedAt());
-                    
-                    UserSummary userSummary = new UserSummary();
-                    userSummary.setId(comment.getUser().getId());
-                    userSummary.setName(comment.getUser().getName());
-                    commentResponse.setUser(userSummary);
-                    
-                    return commentResponse;
-                })
-                .collect(Collectors.toList());
-        response.setComments(commentResponses);
-        
-        return response;
-    }
-    
-    // Helper method to send notifications via JMS
-   /* private void sendNotification(EventType eventType, Long fromUserId, Long toUserId, Long contentId, String message) {
-        try (JMSContext context = connectionFactory.createContext()) {
-            NotificationEvent event = new NotificationEvent(eventType, fromUserId, toUserId, contentId, message);
-            context.createProducer().send(notificationQueue, event);
         } catch (Exception e) {
-            // Log the error but don't stop the main flow
-            System.err.println("Failed to send notification: " + e.getMessage());
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("{\"message\": \"Error liking post: " + e.getMessage() + "\"}").build();
         }
-    }*/
+    }
+
+    // Unlike a post
+    public Response unlikePost(Long userId, Long postId) {
+        try {
+            // Find the like to remove
+            TypedQuery<Like> likeQuery = em.createQuery(
+                    "SELECT l FROM Like l WHERE l.user.id = :userId AND l.post.id = :postId", 
+                    Like.class);
+            likeQuery.setParameter("userId", userId);
+            likeQuery.setParameter("postId", postId);
+            
+            List<Like> likes = likeQuery.getResultList();
+            
+            if (likes.isEmpty()) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity("{\"message\": \"You have not liked this post.\"}").build();
+            }
+
+            // Remove the like
+            Like like = likes.get(0);
+            em.remove(like);
+            
+            return Response.ok("{\"message\": \"Post unliked successfully.\"}").build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("{\"message\": \"Error unliking post: " + e.getMessage() + "\"}").build();
+        }
+    }
+
+    // Add comment to post
+    public Response addComment(Long userId, Long postId, Comment comment) {
+        try {
+            User user = em.find(User.class, userId);
+            Post post = em.find(Post.class, postId);
+            
+            if (user == null || post == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity("{\"message\": \"User or post not found.\"}").build();
+            }
+
+            comment.setUser(user);
+            comment.setPost(post);
+            comment.setCreatedAt(new Date());
+            comment.setUpdatedAt(new Date());
+            
+            em.persist(comment);
+            
+            return Response.status(Response.Status.CREATED)
+                    .entity("{\"message\": \"Comment added successfully.\", \"commentId\": " + comment.getId() + "}").build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("{\"message\": \"Error adding comment: " + e.getMessage() + "\"}").build();
+        }
+    }
+
+    // Update a comment
+    public Response updateComment(Long commentId, Long userId, Comment updatedComment) {
+        try {
+            Comment comment = em.find(Comment.class, commentId);
+            if (comment == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity("{\"message\": \"Comment not found.\"}").build();
+            }
+
+            if (!comment.getUser().getId().equals(userId)) {
+                return Response.status(Response.Status.FORBIDDEN)
+                        .entity("{\"message\": \"You can only update your own comments.\"}").build();
+            }
+
+            // Update comment content
+            if (updatedComment.getContent() != null) {
+                comment.setContent(updatedComment.getContent());
+            }
+            
+            comment.setUpdatedAt(new Date());
+            
+            em.merge(comment);
+            
+            return Response.ok("{\"message\": \"Comment updated successfully.\"}").build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("{\"message\": \"Error updating comment: " + e.getMessage() + "\"}").build();
+        }
+    }
+
+    // Delete a comment
+    public Response deleteComment(Long commentId, Long userId) {
+        try {
+            Comment comment = em.find(Comment.class, commentId);
+            if (comment == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity("{\"message\": \"Comment not found.\"}").build();
+            }
+
+            if (!comment.getUser().getId().equals(userId) && 
+                !comment.getPost().getAuthor().getId().equals(userId)) {
+                return Response.status(Response.Status.FORBIDDEN)
+                        .entity("{\"message\": \"You can only delete your own comments or comments on your posts.\"}").build();
+            }
+
+            em.remove(comment);
+            
+            return Response.ok("{\"message\": \"Comment deleted successfully.\"}").build();
+        } catch (Exception e) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("{\"message\": \"Error deleting comment: " + e.getMessage() + "\"}").build();
+        }
+    }
+
+    // Get comments for a post
+    public List<Comment> getPostComments(Long postId) {
+        TypedQuery<Comment> query = em.createQuery(
+                "SELECT c FROM Comment c WHERE c.post.id = :postId ORDER BY c.createdAt ASC", 
+                Comment.class);
+        query.setParameter("postId", postId);
+        
+        return query.getResultList();
+    }
 }
